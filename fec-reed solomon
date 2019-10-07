@@ -1,0 +1,61 @@
+Erasure Coding（纠删码）深入分析
+纠删码（Erasure Code)本身是一种编码容错技术，最早是在通信行业解决部分数据在传输中损耗的问题，它的基本原理是把传输的信号分段，加入一定的校验再让各段间发生一定的联系，即使在传输过程中丢失掉部分信号，接收端仍然能通过算法把完整的信息计算出来。
+
+如果严格的区分，实际上按照误码控制的不同功能，可分为检错、纠错和纠删三种类型。检错码仅具备识别错码功能 而无纠正错码功能；纠错码不仅具备识别错码功能，同时具备纠正错码功能；纠删码则不仅具备识别错码和纠正错码的功能，而且当错码超过纠正范围时，还可把无法纠错的信息删除。
+今天这篇文章就来介绍一下erasure编码。在分布式存储系统中，通常会通过多副本的方式来保证数据的可靠性，但是多副本带来的成本问题也是显而易见的。在类HDFS这样的系统中，通常数据都会保留三副本，三副本可以容有两副本故障的场景，但同时成本也是一副本的三倍。如何在保证同等的数据可靠性的前提下，减少副本数，降低成本，是分布式存储系统中很重要的一个课题。Erasure编码正是用来解决这个问题的，它能将副本降到1.x的同时，保证同等的数据可靠性保证。本文会以最常用的Reed Solomon erasure编码为例来介绍。
+
+基本原理
+Erasure Code - EC纠删码原理
+https://blog.csdn.net/shelldon/article/details/54144730
+
+
+erasure-codes
+如上图所示，我们总共有$n$块盘，其中$k$块用来存放数据，m块用来存储erasure编码($k+m=n$)，在上面的$n$块盘中，任意坏$m$块，都可以通过erasure编码将其余的恢复出来。也就是说，通常$k+m$的erasure编码，能容$m$块盘故障的场景，这时候的存储成本是$1+m/k$, 通常$m
+
+Reed Solomon算法(里德-所罗门)
+Reed Solomon算法的核心思想包括三个部分:
+1. 利用范德蒙德(Vandermonde)矩阵，通过数据块计算编码块
+2. 利用高斯(Gaussian)消元法, 恢复损坏的数据块
+3. 为了方便计算机处理，所有运算都是在伽罗华域Galios Field)$GF(2^w)$的基础上进行的
+
+下面是Reed Solomon算法的具体步骤($k+m$的Reed Solomon, 处理的字长为$w $):
+1. 选择一个合适的字长$w$, 保证$2^w>k+m$
+2. 构造$GF(2^w)$上的对数表$gflog$和反对数表$gfilog$
+3. 取$m*k $的Vandermonde矩阵F, 其中$F_{i,j}=j^{i-1}$, $(1 < = i <= m, 1 =< j <= k)$ 4. 用F去按字(w)乘数据块就会得到对应的编码块$FD=C$ 5. 如果$e$($e<=m$)块数据损坏，可以通过下面的方式恢复: $A=\begin{bmatrix}I\\F\end{bmatrix} $, $E=\begin{bmatrix}D\\C\end{bmatrix}$ 我们知道$AD=E $, 在$A $和$E $中消去坏块对应的行，得到$A^' $, $E^' $, 满足$A^{'}D=E^'$ 通过高斯消元法，便可以解出$D $; 另外如果是编码块中有坏块，可以直接通过$AD=E$算出对应的坏块。 关于Gaussian消元法: 读者朋友可以回忆一下小时候学的n元一次的方程组的解法，它所用的方法其实就是高斯消元法。由n个独立的方程组成的n元一次方程组，有确定的唯一解。在erasure编码中，$k$个数据块相当于是$k $个元，我们有$k+m$个独立的一次方程，这$k+m$个方程中，取任意$k$个方程组成方程组，我们都可以通过高斯消元法解出$k$个元，这便是erasure编码中真正的秘密。 关于Vandermonde矩阵: 为了保证"n元一次方程组"有解，我们需要保证每个方程都是"独立的", 而用Vandermonde矩阵用来做为方程组的系数，便可以保证这一点。这就是erasure编码中为什么用Vandermonde（范德蒙矩阵）矩阵的原因。下面是Vandermonde矩阵的定义: \[ V=\begin{bmatrix} 1 & 1 & 1 & \cdots & 1 \\ x_0 & x_1 & x_2 & \cdots & x_{n-1} \\ x_{0}^2 & x_{1}^2 & x_{2}^2 & \cdots & x_{n-1}^2 \\ \vdots & \vdots & \vdots & \vdots & \vdots \\ x_{0}^{n-1} & x_{1}^{n-1} & x_{2}^{n-1} & \cdots & x_{n-1}^{n-1} \end{bmatrix} \] 在erasure编码的具体应用到分布式存储系统中时，上面的$x_i $都是在$GF(2^w)$中，所有的运算都是在$GF(2^w)$上做的。
+
+Cauchy Reed Solomon算法
+Cauchy Reed Solomon跟普通的Reed Solomon的最大的区别就是把Vandermonde矩阵换成了Cauchy（柯西)矩阵。通过《Finite Field Arithmetic》我们知道，在$GF(2^w)$中的运算需要查对数表和反对数表来进行，并且随着$w$的增大，查表的开销也会增大。在Cauchy Reed Solomon中，通过使用Cauchy矩阵，可以将$GF(2^w)$上的四则运算做如下转化: 加法->异或，乘法->与，我们知道$GF(2^w)$上的减法都可以转化为加法，除法都可以转化为乘法。因此，通过Cauchy Reed Solomon，可以将$GF(2^w)$上的四则运算都转化为“异或”或者“与”运算，这对于计算机来说，更为友好，速度更快。
+Cauchy Reed Solomon算法的过程跟普通的Reed Solomon算法的过程基本是类似的，关于如何构造Cauchy矩阵，以及如何把四则运算转化为位运算，感兴趣的同学可以参考[2], 这里不再赘述。
+
+Jerasure and Java-Erasure
+再回到算法本身的具体实现上，[3]有各种实现的对比，感兴趣的同学可以参考。总体来说，目前用得比较广泛的是James Plank实现的Jerasure, Jerasure本身是由纯C语言实现了，为了应用到Java语言实现的系统中(HDFS)，前段时间封装了一个wrapper library Java-erasure, 该库的用法和接口都非常简单，具体参考github上的README。
+
+参考资料
+1. A Tutorial on Reed-Solomon Coding for Fault-Tolerance in RAID-like Systems
+2. Optimizing Cauchy Reed-Solomon Codes for Fault-Tolerant Storage Applications
+3. Tutorial: Erasure Coding for Storage Applications
+
+
+
+参考 一 https://www.fuuyun.org/?p=1289
+
+小结
+RS的特点：
+
+低冗余度，高磁盘利用率。
+数据恢复代价高。 丢失数据块或者编码块时， RS需要读取n个数据块和校验块才能恢复数据， 数据恢复效率也在一定程度上制约了RS的可靠性。
+数据更新代价高。 数据更新相当于重新编码， 代价很高， 因此常常针对只读数据，或者冷数据。
+工程实践中，一般对于热数据还是会使用多副本策略来冗余，冷数据使用纠删码
+
+参考二 https://blog.csdn.net/shelldon/article/details/54144730
+FEC 介绍
+在信息中按照某种规则加上一定的冗余位，构成一个码字，称为差错控制编码过程。
+在接收端接收到码字，或从存储设备中读取码字后，查看信息位和冗余位，并检查他们之间的关系是否正确，以确定是否有差错发生，称为校验。
+
+Forward  Error Correction，FEC- 前向纠错编码技术通过在传输码列中加入冗余纠错码，在一定条件下，通过解码可以自动纠正传输误码。这种编码的译码设备较复杂。
+
+除FEC之外，还有两种差错控制编码：Automatic repeat request（ARQ）检错重发（或自动请求重传），Hybrid  Error Correction（HEC）混合纠错。
+
+检错重发由发送端送出能够发现错误的码，接收端如果发现错误，通过反向信道把这一判决结果反馈给发送端。然后，发送端把接收端认为错误的信息再次重发。其特点是需要反馈信道，译码设备简单。
+
+混合纠错是 ARQ和 FEC方式的混合。发送端同时送出具有检错和纠错能力的码，如果接收端收到信码在纠错能力以内，则自动进行纠正。如果超出纠错能力，则经过反馈信道请求发送端重发。
