@@ -12,7 +12,7 @@ https://blog.csdn.net/shelldon/article/details/54144730
 erasure-codes
 如上图所示，我们总共有$n$块盘，其中$k$块用来存放数据，m块用来存储erasure编码($k+m=n$)，在上面的$n$块盘中，任意坏$m$块，都可以通过erasure编码将其余的恢复出来。也就是说，通常$k+m$的erasure编码，能容$m$块盘故障的场景，这时候的存储成本是$1+m/k$, 通常$m
 
-Reed Solomon算法(里德-所罗门)
+Reed Solomon算法(里德-所罗门，又称里所码)
 Reed Solomon算法的核心思想包括三个部分:
 1. 利用范德蒙德(Vandermonde)矩阵，通过数据块计算编码块
 2. 利用高斯(Gaussian)消元法, 恢复损坏的数据块
